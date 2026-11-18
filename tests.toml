@@ -1,5 +1,19 @@
 test_format = 1.0
 
 [default]
-# Full-domain app (the SPA hardcodes /api): no path to change
+
+    [default.curl_tests]
+
+        main.path = "/"
+        main.expect_title = "Domain Watchdog"
+
+        # API platform route: must answer JSON 401 (anonymous), not nginx 404.
+        # Catches SPA-shell-200 with dead API.
+        api_login.path = "/api/login"
+        api_login.expect_return_code = 401
+
+        main.auto_test_assets = true
+
+# Full-domain app (the SPA hardcodes /api in assets/utils/api/index.ts):
+# no path to change
 exclude = ["change_url"]
