@@ -1,0 +1,96 @@
+#!/bin/bash
+
+#=================================================
+# IMPORT GENERIC HELPERS
+#=================================================
+
+source _common.sh
+source /usr/share/yunohost/helpers
+
+#=================================================
+# INITIALIZE AND STORE SETTINGS
+#=================================================
+ynh_script_progression "Setting up $app configuration..."
+
+ynh_app_setting_set_default --key=app_secret --value="$(ynh_string_random --length=32)"
+ynh_app_setting_set_default --key=jwt_passphrase --value="$(ynh_string_random --length=32)"
+ynh_app_setting_set_default --key=redis_password --value="$(ynh_string_random --length=32)"
+ynh_app_setting_set_default --key=php_upload_max_filesize --value=20M
+ynh_app_setting_set_default --key=php_post_max_size --value=20M
+
+admin_email=$(ynh_user_get_info --username="$admin" --key=mail)
+
+#=================================================
+# DOWNLOAD, CHECK AND UNPACK SOURCE
+#=================================================
+ynh_script_progression "Setting up source files..."
+
+ynh_setup_source --dest_dir="$install_dir"
+chown -R "$app:www-data" "$install_dir"
+
+#=================================================
+# APP INITIAL CONFIGURATION
+#=================================================
+ynh_script_progression "Adding $app configuration files..."
+
+ynh_config_add --template="env.local" --destination="$install_dir/.env.local"
+chmod 600 "$install_dir/.env.local"
+chown "$app:$app" "$install_dir/.env.local"
+
+ynh_config_add --template="redis.conf" --destination="$install_dir/redis.conf"
+chmod 600 "$install_dir/redis.conf"
+chown "$app:$app" "$install_dir/redis.conf"
+
+mkdir -p "$install_dir/config/jwt" "$data_dir/redis" "$install_dir/public/content"
+chown -R "$app:$app" "$install_dir/config/jwt" "$data_dir/redis"
+chown -R "$app:www-data" "$install_dir/public/content"
+
+#=================================================
+# PHP DEPENDENCIES
+#=================================================
+ynh_script_progression "Installing PHP dependencies (this may take a while)..."
+
+_domain_watchdog_composer_install
+
+#=================================================
+# JWT KEYPAIR, DATABASE, ADMIN ACCOUNT
+#=================================================
+ynh_script_progression "Initializing the database..."
+
+_domain_watchdog_console "lexik:jwt:generate-keypair" || ynh_die "Unable to generate the JWT keypair"
+_domain_watchdog_console "doctrine:migrations:migrate --no-interaction --all-or-nothing" || ynh_die "Unable to run database migrations"
+_domain_watchdog_build_prod_env
+_domain_watchdog_create_admin_user "$admin_email" "$password"
+
+#=================================================
+# FRONTEND BUILD
+#=================================================
+ynh_script_progression "Building frontend assets (this may take a while)..."
+
+_domain_watchdog_yarn_build
+
+#=================================================
+# SYSTEM CONFIGURATION
+#=================================================
+ynh_script_progression "Adding system configurations related to $app..."
+
+ynh_config_add_phpfpm
+ynh_config_add_nginx
+_add_domain_watchdog_units
+
+yunohost service add "$app-worker" --description="Domain Watchdog message queue worker"
+
+#=================================================
+# START SERVICES
+#=================================================
+ynh_script_progression "Starting services..."
+
+ynh_systemctl --service="php$php_version-fpm" --action=reload
+_start_domain_watchdog_services
+ynh_systemctl --service="$app-worker" --action=start --wait_until="Consuming" --log_path=systemd --timeout=120
+_domain_watchdog_console "app:update-rdap-servers" || ynh_print_warn "Could not prefill the RDAP servers list"
+
+#=================================================
+# END OF SCRIPT
+#=================================================
+ynh_script_progression "Installation of $app completed"

@@ -1,0 +1,30 @@
+[Unit]
+Description=Domain Watchdog messenger worker (__APP__)
+After=network-online.target __APP__-redis.service
+Requires=__APP__-redis.service
+
+[Service]
+Type=simple
+User=__APP__
+Group=__APP__
+WorkingDirectory=__INSTALL_DIR__
+Environment=APP_ENV=prod
+ExecStart=/usr/bin/php__PHP_VERSION__ __INSTALL_DIR__/bin/console messenger:consume async rdap_high rdap_low failed --time-limit=3600
+Restart=always
+RestartSec=10
+NoNewPrivileges=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectSystem=full
+ProtectControlGroups=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectHome=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+RestrictNamespaces=yes
+RestrictRealtime=yes
+LockPersonality=yes
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=multi-user.target

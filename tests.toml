@@ -1,0 +1,5 @@
+test_format = 1.0
+
+[default]
+# Full-domain app (the SPA hardcodes /api): no path to change
+exclude = ["change_url"]

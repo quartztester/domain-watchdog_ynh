@@ -1,0 +1,56 @@
+#!/bin/bash
+
+#=================================================
+# IMPORT GENERIC HELPERS
+#=================================================
+
+# Keep this path for calling _common.sh inside the execution's context of backup and restore scripts
+source ../settings/scripts/_common.sh
+source /usr/share/yunohost/helpers
+
+#=================================================
+# RESTORE THE APP MAIN DIR
+#=================================================
+ynh_script_progression "Restoring the app main directory..."
+
+ynh_restore "$install_dir"
+chown -R "$app:www-data" "$install_dir"
+
+ynh_restore "$data_dir"
+chown -R "$app:$app" "$data_dir"
+
+#=================================================
+# RESTORE THE POSTGRESQL DATABASE
+#=================================================
+ynh_script_progression "Restoring the PostgreSQL database..."
+
+ynh_psql_db_shell < ./db.sql
+
+#=================================================
+# RESTORE SYSTEM CONFIGURATION
+#=================================================
+ynh_script_progression "Restoring system configurations related to $app..."
+
+ynh_restore "/etc/php/$php_version/fpm/pool.d/$app.conf"
+ynh_restore "/etc/nginx/conf.d/$domain.d/$app.conf"
+
+for svc in "$app-redis" "$app-worker" "$app-scheduler"; do
+    ynh_restore "/etc/systemd/system/$svc.service"
+    systemctl enable "$svc.service" --quiet
+done
+
+
+yunohost service add "$app-worker" --description="Domain Watchdog message queue worker"
+
+#=================================================
+# RELOAD NGINX AND SERVICES
+#=================================================
+ynh_script_progression "Reloading NGINX web server and $app's services..."
+
+ynh_systemctl --service="php$php_version-fpm" --action=reload
+_start_domain_watchdog_services
+
+#=================================================
+# END OF SCRIPT
+#=================================================
+ynh_script_progression "Restoration completed for $app"

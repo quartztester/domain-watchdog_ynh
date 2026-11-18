@@ -1,0 +1,95 @@
+#!/bin/bash
+
+#=================================================
+# IMPORT GENERIC HELPERS
+#=================================================
+
+source _common.sh
+source /usr/share/yunohost/helpers
+
+#=================================================
+# STOP SYSTEMD SERVICES
+#=================================================
+ynh_script_progression "Stopping $app's systemd services..."
+
+_stop_domain_watchdog_services
+
+#=================================================
+# ENSURE DOWNWARD COMPATIBILITY
+#=================================================
+ynh_script_progression "Ensuring downward compatibility..."
+
+ynh_app_setting_set_default --key=app_secret --value="$(ynh_string_random --length=32)"
+ynh_app_setting_set_default --key=jwt_passphrase --value="$(ynh_string_random --length=32)"
+ynh_app_setting_set_default --key=redis_password --value="$(ynh_string_random --length=32)"
+ynh_app_setting_set_default --key=php_upload_max_filesize --value=20M
+ynh_app_setting_set_default --key=php_post_max_size --value=20M
+
+admin_email=$(ynh_user_get_info --username="$admin" --key=mail)
+
+#=================================================
+# DOWNLOAD, CHECK AND UNPACK SOURCE
+#=================================================
+ynh_script_progression "Upgrading source files..."
+
+ynh_setup_source --dest_dir="$install_dir" --full_replace --keep=".env.local .env.local.php config/jwt public/content .composer"
+chown -R "$app:www-data" "$install_dir"
+
+#=================================================
+# UPDATE CONFIG FILES
+#=================================================
+ynh_script_progression "Updating $app's configuration files..."
+
+ynh_config_add --template="env.local" --destination="$install_dir/.env.local"
+chmod 600 "$install_dir/.env.local"
+chown "$app:$app" "$install_dir/.env.local"
+
+ynh_config_add --template="redis.conf" --destination="$install_dir/redis.conf"
+chmod 600 "$install_dir/redis.conf"
+chown "$app:$app" "$install_dir/redis.conf"
+
+mkdir -p "$install_dir/config/jwt" "$data_dir/redis" "$install_dir/public/content"
+chown -R "$app:$app" "$install_dir/config/jwt" "$data_dir/redis"
+chown -R "$app:www-data" "$install_dir/public/content"
+
+#=================================================
+# PHP DEPENDENCIES, MIGRATIONS, FRONTEND BUILD
+#=================================================
+ynh_script_progression "Installing PHP dependencies (this may take a while)..."
+
+_domain_watchdog_composer_install
+_domain_watchdog_console "doctrine:migrations:migrate --no-interaction --all-or-nothing" || ynh_die "Unable to run database migrations"
+_domain_watchdog_build_prod_env
+# Create the admin account if a previous version never provisioned one
+existing=$(ynh_psql_db_shell "$db_name" <<< "SELECT count(*) FROM \"user\" WHERE email = '$admin_email';")
+if ! echo "$existing" | grep -q '[1-9]'; then
+    ynh_print_warn "Admin app account missing; set its password with: yunohost app shell $app"
+fi
+
+ynh_script_progression "Building frontend assets (this may take a while)..."
+
+_domain_watchdog_yarn_build
+
+#=================================================
+# REAPPLY SYSTEM CONFIGURATION
+#=================================================
+ynh_script_progression "Upgrading system configurations related to $app..."
+
+ynh_config_add_phpfpm
+ynh_config_add_nginx
+_add_domain_watchdog_units
+
+yunohost service add "$app-worker" --description="Domain Watchdog message queue worker"
+
+#=================================================
+# START SERVICES
+#=================================================
+ynh_script_progression "Starting services..."
+
+ynh_systemctl --service="php$php_version-fpm" --action=reload
+_start_domain_watchdog_services
+
+#=================================================
+# END OF SCRIPT
+#=================================================
+ynh_script_progression "Upgrade of $app completed"
