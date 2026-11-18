@@ -10,9 +10,10 @@ exclude = ["change_url"]
         main.path = "/"
         main.expect_title = "Domain Watchdog"
 
-        # API platform route: must answer JSON 401 (anonymous), not nginx 404.
-        # Catches SPA-shell-200 with dead API.
-        api_login.path = "/api/login"
-        api_login.expect_return_code = 401
+        # Real API route (upstream Instance entity, public GET): must answer
+        # 200 JSON, not nginx 404 — catches SPA-shell-200 with dead API.
+        # /api/login is POST-only (json_login) and answers 405 on GET.
+        api_config.path = "/api/config"
+        api_config.expect_return_code = 200
 
         main.auto_test_assets = true
