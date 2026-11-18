@@ -61,7 +61,7 @@ ram.runtime = "512M"
     main.url = "/"
 
     [resources.ports]
-    redis.default = 0
+    [resources.ports.redis]
 
     [resources.apt]
     packages = "postgresql, redis-server, php8.4-fpm, php8.4-pgsql, php8.4-redis, php8.4-intl, php8.4-xml, php8.4-zip, php8.4-curl, php8.4-apcu, php8.4-opcache"
