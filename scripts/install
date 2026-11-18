@@ -86,8 +86,7 @@ yunohost service add "$app-worker" --description="Domain Watchdog message queue 
 ynh_script_progression "Starting services..."
 
 ynh_systemctl --service="php$php_version-fpm" --action=reload
-_start_domain_watchdog_services
-ynh_systemctl --service="$app-worker" --action=start --wait_until="Consuming" --log_path=systemd --timeout=120
+_start_domain_watchdog_services_with_worker_gate
 _domain_watchdog_console "app:update-rdap-servers" || ynh_print_warn "Could not prefill the RDAP servers list"
 
 #=================================================

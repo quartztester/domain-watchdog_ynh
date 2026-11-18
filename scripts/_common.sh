@@ -5,8 +5,10 @@
 #=================================================
 
 _domain_watchdog_console() {
-    # Run bin/console as the app user with the app env file loaded
-    ynh_exec_as_app env "APP_ENV=prod" bash -c "cd '$install_dir' && php$php_version bin/console $*"
+    # Run bin/console as the app user with the app env file loaded.
+    # Symfony logs deprecations to stderr; the CI counts stderr lines as
+    # warnings and aborts the test on the flood, so merge them into stdout.
+    ynh_exec_as_app env "APP_ENV=prod" bash -c "cd '$install_dir' && php$php_version bin/console $*" 2>&1 || return 1
 }
 
 _domain_watchdog_composer_install() {
@@ -59,6 +61,14 @@ _add_domain_watchdog_units() {
 _start_domain_watchdog_services() {
     ynh_systemctl --service="${app}-redis" --action=start
     ynh_systemctl --service="${app}-worker" --action=start
+    ynh_systemctl --service="${app}-scheduler" --action=start
+}
+
+# In install, start units one at a time so the worker's startup line can be
+# watched: a double start (helper then wait_until) races the journal tail.
+_start_domain_watchdog_services_with_worker_gate() {
+    ynh_systemctl --service="${app}-redis" --action=start
+    ynh_systemctl --service="${app}-worker" --action=start --wait_until="Consuming" --log_path=systemd --timeout=120
     ynh_systemctl --service="${app}-scheduler" --action=start
 }
 
